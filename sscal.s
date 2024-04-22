@@ -17,10 +17,12 @@ sscal:
 	str	x1, [sp, 16]
 	# Scalar INCX
 	str	s1, [sp, 12]
-	# Not necessary because w0 still contains N
-	# ldr	w0, [sp, 28]
+	
+	# Validation: Zero length array	
+	ldr	w0, [sp, 28]
 	cmp	w0, 0
 	ble	.L7
+	# Validation: Null pointer
 	ldr	x0, [sp, 16]
 	cmp	x0, 0
 	beq	.L8
@@ -33,14 +35,17 @@ sscal:
 	ldr 	x9, [sp, 16]
 	# Preload the value of N here instead of in .L5
 	ldr	w0, [sp, 28]
-
-	and	w10, w10, #3
-	cmp 	w0, w10
-	beq 	.mul4
 	
-	and	w10, w10, #1
-	cmp 	w0, w10
+	
+
+	and	w10, w0, #3
+	cmp 	w10, wzr
+	beq 	.mul4
+	and	w10, w0, #1
+	cmp 	w10, wzr
 	beq 	.mul2
+	# Fall through slot: Go to the original version of the function
+	b	.L5
 
 # My implementation of the loop when it is a multiple of 2
 .mul2:
@@ -86,7 +91,6 @@ sscal:
 	b .mul4looptop
 
 # Original implementation, not a multiple of 2 or 4	
-	b	.L5
 .L6:
 	# If you put it in s2 you dont clobber ALPHA and INCX ...
 	ldr 	s2, [x9]	

@@ -1,1 +1,1 @@
-void sscal(int N, float ALPHA, float *X, int INCX);
+void sscal(int N, float ALPHA, float *X, float INCX);
