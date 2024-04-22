@@ -33,7 +33,59 @@ sscal:
 	ldr 	x9, [sp, 16]
 	# Preload the value of N here instead of in .L5
 	ldr	w0, [sp, 28]
+
+	and	w10, w10, #3
+	cmp 	w0, w10
+	beq 	.mul4
 	
+	and	w10, w10, #1
+	cmp 	w0, w10
+	beq 	.mul2
+
+# My implementation of the loop when it is a multiple of 2
+.mul2:
+	# Pretest loop, pre-broadcast the scalars before loop. For some weird and
+	# undocumented reason you cannot provide a literal offset when indexing
+	# with LD1R.
+	add	x11, sp, 24
+	ld1r	{v16.2s}, [x11]
+	add	x11, sp, 12
+	ld1r	{v17.2s}, [x11]
+.mul2looptop:
+	cmp	w19, w0
+	bge 	.L1
+	ld1 	{v18.2s}, [x9]	
+	# Fused multiply add
+	fmul	v18.2s, v16.2s, v18.2s
+	fadd	v18.2s, v18.2s, v17.2s
+	# ... use post index to save some calculations.
+	st1 	{v18.2s}, [x9], 8
+	add	w19, w19, 2	
+	b .mul2looptop
+
+	
+# My implementation of the loop when it is a multiple of 4
+.mul4:
+	# Pretest loop, pre-broadcast the scalars before loop. For some weird and
+	# undocumented reason you cannot provide a literal offset when indexing
+	# with LD1R.
+	add	x11, sp, 24
+	ld1r	{v16.4s}, [x11]
+	add	x11, sp, 12
+	ld1r	{v17.4s}, [x11]
+.mul4looptop:
+	cmp	w19, w0
+	bge 	.L1
+	ld1 	{v18.4s}, [x9]	
+	# Fused multiply add
+	fmul	v18.4s, v16.4s, v18.4s
+	fadd	v18.4s, v18.4s, v17.4s
+	# ... use post index to save some calculations.
+	st1 	{v18.4s}, [x9], 16
+	add	w19, w19, 4
+	b .mul4looptop
+
+# Original implementation, not a multiple of 2 or 4	
 	b	.L5
 .L6:
 	# If you put it in s2 you dont clobber ALPHA and INCX ...
