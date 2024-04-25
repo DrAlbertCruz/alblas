@@ -90,7 +90,8 @@ sscal:
 	add	w19, w19, 4
 	b .mul4looptop
 
-# Original implementation, not a multiple of 2 or 4	
+# Original implementation, not a multiple of 2 or 4
+# TODO: Attempt to do a 4-lane SIMD up until it is no longer possible then degrade to single operations
 .L6:
 	# If you put it in s2 you dont clobber ALPHA and INCX ...
 	ldr 	s2, [x9]	
