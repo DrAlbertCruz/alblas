@@ -1,121 +1,137 @@
-	.arch armv8-a
-	.file	"sscal.c"
-	.text
-	.align	2
-	.global	sscal
-	.type	sscal, %function
-sscal:
-.LFB0:
+; SSCAL() created for Mac
+	.section	__TEXT,__text,regular,pure_instructions
+	.build_version macos, 14, 0	sdk_version 14, 4
+	.globl	_sscal                          ; -- Begin function sscal
+	.p2align	2
+_sscal:                                 ; @sscal
 	.cfi_startproc
-	sub	sp, sp, #48
-	.cfi_def_cfa_offset 48
-	# Length N
-	str	w0, [sp, 28]
-	# Scalar ALPHA
-	str	s0, [sp, 24]
-	# float* X
-	str	x1, [sp, 16]
-	# Scalar INCX
-	str	s1, [sp, 12]
-	
-	# Validation: Zero length array	
-	ldr	w0, [sp, 28]
-	cmp	w0, 0
-	ble	.L7
-	# Validation: Null pointer
-	ldr	x0, [sp, 16]
-	cmp	x0, 0
-	beq	.L8
+; %bb.0:
+	sub	sp, sp, #32
+	.cfi_def_cfa_offset 32
+	str	w0, [sp, #28]	; n
+	str	s0, [sp, #24]	; a
+	str	x1, [sp, #16]	; *x
+	str	s1, [sp, #12]	; b
+	ldr	w8, [sp, #28]
 
-	# There is no need for an I variable, use a saved register instead.
-	str	x19, [sp]
-	mov 	w19, wzr
+	; Unlike Linux GCC, Mac's clang seems to use a combination of 
+	; subs, cset and tbnz. We can infer that subs is performing the 
+	; equivalent of a - b == 0
+	subs	w8, w8, #0
+	; if n > 0 proceed to LBB0_2
+	cset	w8, gt
+	tbnz	w8, #0, LBB0_2
+	; Below must be the test case for n <= 0
+	; Why is it juping to LBB_01?
+	b	LBB0_1
+LBB0_1:
+	b	LBB0_8
+LBB0_2:
+	; clang is refreshing *x on the stack here
+	ldr	x8, [sp, #16]
+	; *x != 0 then jump to LBB0_4
+	subs	x8, x8, #0
+	cset	w8, ne
+	tbnz	w8, #0, LBB0_4
+	b	LBB0_3
+LBB0_3:
+	b	LBB0_8
+LBB0_4:
+	; This appears to be a section dedicated to one-time items to run before
+	; attempting to start the loop body.
+	; Here is where it sets i = 0
+	str	wzr, [sp, #8]
+	; Here, I set x11 to point to the start of the array at *x
+	ldr	x11, [sp, #16]
+	; All cases will not use simd, but we preload the values here just in case
+	; scratch vector registers start at 16. Due to poor documentation its not
+	; obvious but ARM broadcast instructions cannot have a literal offset
+	; of the pointer provided, we have to use an arithmetic instruction to
+	; offset the stack pointer.
+	add 	x12, sp, 24	; a
+	ld1r 	{v16.2s}, [x12] 
+	ld1r 	{v18.4s}, [x12] 
+	add 	x12, sp, 12 ; b
+	ld1r 	{v17.2s}, [x12] 
+	ld1r 	{v19.4s}, [x12] 
+	; TODO: It's not clear to me if 4s would cover the 2s case, most likely
+	; Feel it is unnecessary to fall through into LBB0_5
 	
-	# Set a temporary to *X that iterates through array
-	ldr 	x9, [sp, 16]
-	# Preload the value of N here instead of in .L5
-	ldr	w0, [sp, 28]
+	; Prep for SIMD branches. If 'n' is not divisible by 2, run the conventional
+	; branch exactly once. clang seems to like r8 a lot
+checkOdd:
+	and	w8, w0, #1	; Mask LSB 
+	cmp 	w8, wzr		; If LSB ...
+	bne 	LBB0_6		; is not equal to zero, it is odd
+checkDiv2:
+	b	simd2
+LBB0_5:                                 ; =>This Inner Loop Header: Depth=1
+	; This is an inner loop that determines if we should loop again
+	; Refresh the value of i
+	ldr	w8, [sp, #8]
+	; Refreshes the value of n 
+	ldr	w9, [sp, #28]
+	; i - n == 0 ... if i > n jump to LBB0_8
+	subs	w8, w8, w9
+	cset	w8, ge
+	tbnz	w8, #0, LBB0_8
+	b	simd2
+LBB0_6:                                 ;   in Loop: Header=BB0_5 Depth=1
+	; What clang originally created. We repurpose it here to run exactly once
+	; our SIMD implementation. 
+	; It refreshes the value of a here, not necessary
+	; ldr	s0, [sp, #24]
 	
+	; It refreshes the pointer to x here
+	; Loads value of i again
+	ldrsw	x9, [sp, #8]
 	
-
-	and	w10, w0, #3
-	cmp 	w10, wzr
-	beq 	.mul4
-	and	w10, w0, #1
-	cmp 	w10, wzr
-	beq 	.mul2
-	# Fall through slot: Go to the original version of the function
-	b	.L5
-
-# My implementation of the loop when it is a multiple of 2
-.mul2:
-	# Pretest loop, pre-broadcast the scalars before loop. For some weird and
-	# undocumented reason you cannot provide a literal offset when indexing
-	# with LD1R.
-	add	x11, sp, 24
-	ld1r	{v16.2s}, [x11]
-	add	x11, sp, 12
-	ld1r	{v17.2s}, [x11]
-.mul2looptop:
-	cmp	w19, w0
-	bge 	.L1
-	ld1 	{v18.2s}, [x9]	
-	# Fused multiply add
-	fmul	v18.2s, v16.2s, v18.2s
-	fadd	v18.2s, v18.2s, v17.2s
-	# ... use post index to save some calculations.
-	st1 	{v18.2s}, [x9], 8
-	add	w19, w19, 2	
-	b .mul2looptop
-
+	; Suboptimal *(x + 4 * i), into s1
+	; ldr	s1, [x8, x9, lsl #2]
+	; Instead, just deference. Later will will physically move the pointer.
+	ldr 	s3, [x11]
 	
-# My implementation of the loop when it is a multiple of 4
-.mul4:
-	# Pretest loop, pre-broadcast the scalars before loop. For some weird and
-	# undocumented reason you cannot provide a literal offset when indexing
-	# with LD1R.
-	add	x11, sp, 24
-	ld1r	{v16.4s}, [x11]
-	add	x11, sp, 12
-	ld1r	{v17.4s}, [x11]
-.mul4looptop:
-	cmp	w19, w0
-	bge 	.L1
-	ld1 	{v18.4s}, [x9]	
-	# Fused multiply add
-	fmul	v18.4s, v16.4s, v18.4s
-	fadd	v18.4s, v18.4s, v17.4s
-	# ... use post index to save some calculations.
-	st1 	{v18.4s}, [x9], 16
-	add	w19, w19, 4
-	b .mul4looptop
+	; Refreshes B here, but we never clobbered s1
+	; ldr	s2, [sp, #12]
+	
+	; The actual SSCAL math, adjust some registers
+	fmadd	s3, s3, s0, s1
 
-# Original implementation, not a multiple of 2 or 4
-# TODO: Attempt to do a 4-lane SIMD up until it is no longer possible then degrade to single operations
-.L6:
-	# If you put it in s2 you dont clobber ALPHA and INCX ...
-	ldr 	s2, [x9]	
-	fmul	s2, s2, s0
-	fadd	s2, s2, s1
-	# ... use post index to save some calculations.
-	str 	s2, [x9], 4
-	add	w19, w19, 1
-.L5:
-	cmp	w19, w0
-	blt	.L6
-	b	.L1
-.L7:
-	nop
-	b	.L1
-.L8:
-	nop
-.L1:
-	ldr 	x19, [sp]
-	add	sp, sp, 48
-	.cfi_def_cfa_offset 0
+	; Here it refreshes *x again
+	; ldr	x8, [sp, #16]
+	; ldrsw	x9, [sp, #8]
+	; str	s0, [x8, x9, lsl #2]
+	; Instead: Store and use a post-index
+	str	s3, [x11], 4
+	
+	; Why does it branch into a fall through?
+	; b	LBB0_7
+LBB0_7:                                 ;   in Loop: Header=BB0_5 Depth=1
+	ldr	w8, [sp, #8]
+	add	w8, w8, #1
+	str	w8, [sp, #8]
+	b	checkDiv2
+simd2:
+	; SIMD 2 implementation of sscal()
+	; Loads value of i again
+	ldrsw	x9, [sp, #8]
+	; Deref x[i]
+	ld1 	{v20.2s}, [x11]
+	; The actual SSCAL math, adjust some registers
+	; fmadd does not seem to work for SIMD
+	; TODO: investigate why
+	; fmadd	v20.2s, v16.2s, v16.2s, v17.2s
+	fmul 	v20.2s, v16.2s, v20.2s
+	fadd	v20.2s, v20.2s, v17.2s
+	; Store and use a post-index
+	st1	{v20.2s}, [x11], 8
+	ldr	w8, [sp, #8]
+	add	w8, w8, #2
+	str	w8, [sp, #8]
+	b	LBB0_5
+LBB0_8:
+	add	sp, sp, #32
 	ret
 	.cfi_endproc
-.LFE0:
-	.size	sscal, .-sscal
-	.ident	"GCC: (Ubuntu 9.4.0-1ubuntu1~20.04.2) 9.4.0"
-	.section	.note.GNU-stack,"",@progbits
+                                        ; -- End function
+.subsections_via_symbols
