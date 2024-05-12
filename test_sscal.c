@@ -28,4 +28,17 @@ int main() {
 	sscal( 2, alpha, c, gamma );
 	printf( "Output of %g * %g + %g: %g\n", alpha, c[0], gamma, c[0] );
 	printf( "Output of %g * %g + %g: %g\n", alpha, c[1], gamma, c[1] );
+	// Fifth test case: Three length array
+	printf( "Test case 5: Passing a three length array to sscal().\n" );
+	float d[] = {0, 2, 4};
+	printf( "Desired output of %g * %g + %g: %g\n", 
+		alpha, d[0], gamma, alpha * d[0] + gamma );
+	printf( "Desired output of %g * %g + %g: %g\n", 
+		alpha, d[1], gamma, alpha * d[1] + gamma );
+	printf( "Desired output of %g * %g + %g: %g\n", 
+		alpha, d[2], gamma, alpha * d[2] + gamma );
+	sscal( 2, alpha, d, gamma );
+	printf( "Output of %g * %g + %g: %g\n", alpha, d[0], gamma, d[0] );
+	printf( "Output of %g * %g + %g: %g\n", alpha, d[1], gamma, d[1] );
+	printf( "Output of %g * %g + %g: %g\n", alpha, d[2], gamma, d[2] );
 }
