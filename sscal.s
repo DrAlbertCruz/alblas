@@ -64,7 +64,8 @@ checkOdd:
 	cmp 	w8, wzr		; If LSB ...
 	bne 	LBB0_6		; is not equal to zero, it is odd
 checkDiv2:
-	b	simd2
+	b 	simd2_0
+	; Fall through to check if we should run again
 LBB0_5:                                 ; =>This Inner Loop Header: Depth=1
 	; This is an inner loop that determines if we should loop again
 	; Refresh the value of i
@@ -75,7 +76,23 @@ LBB0_5:                                 ; =>This Inner Loop Header: Depth=1
 	subs	w8, w8, w9
 	cset	w8, ge
 	tbnz	w8, #0, LBB0_8
-	b	simd2
+	; b	simd4_0
+simd2_0:
+	; SIMD 2 implementation of sscal()
+	; Deref x[i]
+	ld1 	{v20.2s}, [x11]
+	; The actual SSCAL math, adjust some registers
+	; fmadd does not seem to work for SIMD
+	; TODO: investigate why
+	; fmadd	v20.2s, v16.2s, v16.2s, v17.2s
+	fmul 	v20.2s, v16.2s, v20.2s
+	fadd	v20.2s, v20.2s, v17.2s
+	; Store and use a post-index
+	st1	{v20.2s}, [x11], 8
+	ldr	w8, [sp, #8]
+	add	w8, w8, #2
+	str	w8, [sp, #8]
+	b	LBB0_5
 LBB0_6:                                 ;   in Loop: Header=BB0_5 Depth=1
 	; What clang originally created. We repurpose it here to run exactly once
 	; our SIMD implementation. 
@@ -111,22 +128,16 @@ LBB0_7:                                 ;   in Loop: Header=BB0_5 Depth=1
 	add	w8, w8, #1
 	str	w8, [sp, #8]
 	b	checkDiv2
-simd2:
-	; SIMD 2 implementation of sscal()
-	; Loads value of i again
-	ldrsw	x9, [sp, #8]
+simd4_0:
+	; SIMD 4 implementation of sscal()
 	; Deref x[i]
-	ld1 	{v20.2s}, [x11]
-	; The actual SSCAL math, adjust some registers
-	; fmadd does not seem to work for SIMD
-	; TODO: investigate why
-	; fmadd	v20.2s, v16.2s, v16.2s, v17.2s
-	fmul 	v20.2s, v16.2s, v20.2s
-	fadd	v20.2s, v20.2s, v17.2s
+	ld1 	{v20.4s}, [x11]
+	fmul 	v20.4s, v18.4s, v20.4s
+	fadd	v20.4s, v20.4s, v19.4s
 	; Store and use a post-index
-	st1	{v20.2s}, [x11], 8
+	st1	{v20.4s}, [x11], 16
 	ldr	w8, [sp, #8]
-	add	w8, w8, #2
+	add	w8, w8, #4
 	str	w8, [sp, #8]
 	b	LBB0_5
 LBB0_8:
